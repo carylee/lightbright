@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sketch Image Enhancer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light grey background for the page */
+        }
+        .controls-card {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #374151; /* Darker grey for labels */
+        }
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+        input[type="file"] {
+            display: block;
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db; /* Lighter grey border */
+            border-radius: 0.375rem;
+            background-color: #f9fafb; /* Very light grey for input background */
+        }
+        button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.375rem;
+            font-weight: 600;
+            transition: background-color 0.2s;
+            border: none;
+        }
+        .btn-primary {
+            background-color: #3b82f6; /* Blue */
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: #2563eb;
+        }
+        .btn-secondary {
+            background-color: #6b7280; /* Medium grey */
+            color: white;
+        }
+        .btn-secondary:hover {
+            background-color: #4b5563;
+        }
+        .btn-danger {
+            background-color: #ef4444; /* Red */
+            color: white;
+        }
+        .btn-danger:hover {
+            background-color: #dc2626;
+        }
+        canvas {
+            display: block;
+            max-width: 100%;
+            border-radius: 0.375rem;
+            margin-top: 1rem;
+            background-color: #e5e7eb; /* Placeholder background for canvas */
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            text-align: center;
+        }
+        .modal.active {
+            visibility: visible;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-gray-800">Sketch Image Enhancer</h1>
+            <p class="text-gray-600">Upload your sketch, adjust brightness/contrast, and make the background white.</p>
+        </header>
+
+        <div class="controls-card mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label for="imageUpload">Upload Sketch:</label>
+                    <input type="file" id="imageUpload" accept="image/*" class="mb-4">
+                </div>
+                <div class="space-y-4">
+                    <div>
+                        <label for="brightnessSlider">Brightness: <span id="brightnessValue">100</span>%</label>
+                        <input type="range" id="brightnessSlider" min="0" max="300" value="100">
+                    </div>
+                    <div>
+                        <label for="contrastSlider">Contrast: <span id="contrastValue">100</span>%</label>
+                        <input type="range" id="contrastSlider" min="0" max="300" value="100">
+                    </div>
+                </div>
+            </div>
+             <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                <button id="processBackground" class="btn-primary w-full">Make Background White</button>
+                <button id="resetControls" class="btn-secondary w-full">Reset All</button>
+                <button id="downloadImage" class="btn-primary w-full bg-green-500 hover:bg-green-600">Download Image</button>
+            </div>
+            <p class="text-sm text-gray-500 mt-4">
+                Note: "Make Background White" works best on images with a clear distinction between the sketch and a light, relatively uniform background.
+                It targets light greyish pixels. Results may vary.
+            </p>
+        </div>
+
+        <canvas id="imageCanvas"></canvas>
+        <p id="canvasPlaceholder" class="text-center text-gray-500 mt-4">Upload an image to see it here.</p>
+
+    </div>
+
+    <!-- Modal for messages -->
+    <div id="messageModal" class="modal">
+        <div class="modal-content">
+            <p id="modalMessageText"></p>
+            <button id="closeModal" class="btn-primary mt-4">OK</button>
+        </div>
+    </div>
+
+    <script>
+        const imageUpload = document.getElementById('imageUpload');
+        const brightnessSlider = document.getElementById('brightnessSlider');
+        const contrastSlider = document.getElementById('contrastSlider');
+        const brightnessValueDisplay = document.getElementById('brightnessValue');
+        const contrastValueDisplay = document.getElementById('contrastValue');
+        const processBackgroundButton = document.getElementById('processBackground');
+        const resetControlsButton = document.getElementById('resetControls');
+        const downloadImageButton = document.getElementById('downloadImage');
+        const canvas = document.getElementById('imageCanvas');
+        const canvasPlaceholder = document.getElementById('canvasPlaceholder');
+        const ctx = canvas.getContext('2d');
+
+        const messageModal = document.getElementById('messageModal');
+        const modalMessageText = document.getElementById('modalMessageText');
+        const closeModalButton = document.getElementById('closeModal');
+
+        let originalImage = null; // Store the original uploaded image
+        let currentImageState = null; // Store the image after background processing, if any
+        let imageLoaded = false;
+
+        // --- Utility to show modal messages ---
+        function showModal(message) {
+            modalMessageText.textContent = message;
+            messageModal.classList.add('active');
+        }
+        closeModalButton.addEventListener('click', () => {
+            messageModal.classList.remove('active');
+        });
+
+
+        // --- Image Loading ---
+        imageUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    originalImage = new Image();
+                    originalImage.onload = () => {
+                        // Set canvas dimensions to the image dimensions
+                        canvas.width = originalImage.width;
+                        canvas.height = originalImage.height;
+                        currentImageState = null; // Reset processed state
+                        resetSliders();
+                        applyFiltersAndDraw();
+                        imageLoaded = true;
+                        canvasPlaceholder.style.display = 'none';
+                        canvas.style.backgroundColor = 'transparent'; // Remove placeholder bg
+                    };
+                    originalImage.onerror = () => {
+                        showModal("Error loading image. Please try a different file.");
+                        imageLoaded = false;
+                        canvasPlaceholder.style.display = 'block';
+                    }
+                    originalImage.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // --- Filter Application and Drawing ---
+        function applyFiltersAndDraw() {
+            if (!originalImage) return;
+
+            // Determine which image to draw (original or background-processed)
+            const imageToDraw = currentImageState || originalImage;
+
+            // Clear canvas before drawing
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Apply brightness and contrast filters
+            const brightness = brightnessSlider.value / 100;
+            const contrast = contrastSlider.value / 100;
+            ctx.filter = `brightness(${brightness}) contrast(${contrast})`;
+            
+            // Draw the image
+            ctx.drawImage(imageToDraw, 0, 0, canvas.width, canvas.height);
+            
+            // Reset filter after drawing to avoid affecting other canvas operations
+            ctx.filter = 'none';
+        }
+
+        brightnessSlider.addEventListener('input', () => {
+            brightnessValueDisplay.textContent = brightnessSlider.value;
+            if (imageLoaded) applyFiltersAndDraw();
+        });
+
+        contrastSlider.addEventListener('input', () => {
+            contrastValueDisplay.textContent = contrastSlider.value;
+            if (imageLoaded) applyFiltersAndDraw();
+        });
+
+        // --- Background Processing ---
+        processBackgroundButton.addEventListener('click', () => {
+            if (!originalImage) {
+                showModal("Please upload an image first.");
+                return;
+            }
+
+            // Create a temporary canvas to process the original image
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = originalImage.width;
+            tempCanvas.height = originalImage.height;
+
+            // Draw the original image to the temporary canvas
+            tempCtx.drawImage(originalImage, 0, 0);
+
+            // Get image data from the temporary canvas
+            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const data = imageData.data;
+
+            // Define thresholds for "background-like" pixels
+            // These values might need tweaking for different images/lighting
+            const R_THRESHOLD = 200; 
+            const G_THRESHOLD = 200;
+            const B_THRESHOLD = 200;
+            const COLOR_DIFF_THRESHOLD = 35; // Max difference between R,G,B to be considered greyish
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+
+                // Check if pixel is light enough
+                if (r > R_THRESHOLD && g > G_THRESHOLD && b > B_THRESHOLD) {
+                    // Check if pixel is greyish (components are close to each other)
+                    const maxColor = Math.max(r, g, b);
+                    const minColor = Math.min(r, g, b);
+                    if ((maxColor - minColor) < COLOR_DIFF_THRESHOLD) {
+                        // Make this pixel white
+                        data[i] = 255;     // Red
+                        data[i + 1] = 255; // Green
+                        data[i + 2] = 255; // Blue
+                        // Alpha (data[i+3]) remains unchanged
+                    }
+                }
+            }
+
+            // Put the modified data back to the temporary canvas
+            tempCtx.putImageData(imageData, 0, 0);
+
+            // Create a new Image object from the processed temporary canvas
+            currentImageState = new Image();
+            currentImageState.onload = () => {
+                applyFiltersAndDraw(); // Redraw with the new base image and current filters
+                showModal("Background processed. You can continue adjusting brightness/contrast or download.");
+            };
+            currentImageState.onerror = () => {
+                 showModal("Error processing background. The image might be too complex or in an unsupported format after processing.");
+            }
+            currentImageState.src = tempCanvas.toDataURL();
+        });
+
+        // --- Reset Controls ---
+        function resetSliders() {
+            brightnessSlider.value = 100;
+            contrastSlider.value = 100;
+            brightnessValueDisplay.textContent = '100';
+            contrastValueDisplay.textContent = '100';
+        }
+
+        resetControlsButton.addEventListener('click', () => {
+            if (!originalImage) {
+                showModal("Upload an image to reset controls.");
+                return;
+            }
+            currentImageState = null; // Revert to original image if background was processed
+            resetSliders();
+            applyFiltersAndDraw();
+            showModal("Controls and image reset to original.");
+        });
+
+        // --- Download Image ---
+        downloadImageButton.addEventListener('click', () => {
+            if (!imageLoaded || !originalImage) {
+                showModal("Please upload and process an image before downloading.");
+                return;
+            }
+
+            // Create a temporary canvas to draw the final image for download
+            // This ensures filters are correctly applied before generating the data URL
+            const downloadCanvas = document.createElement('canvas');
+            const downloadCtx = downloadCanvas.getContext('2d');
+            
+            const imageToDownload = currentImageState || originalImage;
+            downloadCanvas.width = imageToDownload.width;
+            downloadCanvas.height = imageToDownload.height;
+
+            // Apply current filters
+            const brightness = brightnessSlider.value / 100;
+            const contrast = contrastSlider.value / 100;
+            downloadCtx.filter = `brightness(${brightness}) contrast(${contrast})`;
+            
+            // Draw the image (either original or background-processed)
+            downloadCtx.drawImage(imageToDownload, 0, 0, downloadCanvas.width, downloadCanvas.height);
+            
+            // Create download link
+            const dataURL = downloadCanvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.href = dataURL;
+            link.download = 'edited_sketch.png';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showModal("Image download started.");
+        });
+
+        // Initial placeholder visibility
+        if (!imageLoaded) {
+            canvasPlaceholder.style.display = 'block';
+        }
+
+    </script>
+</body>
+</html>
