@@ -8,7 +8,7 @@
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6; /* Light grey background for the page */
+            background-color: #f3f4f6;
         }
         .controls-card {
             background-color: white;
@@ -20,7 +20,7 @@
             display: block;
             margin-bottom: 0.5rem;
             font-weight: 500;
-            color: #374151; /* Darker grey for labels */
+            color: #374151;
         }
         input[type="range"] {
             width: 100%;
@@ -30,9 +30,9 @@
             display: block;
             width: 100%;
             padding: 0.75rem;
-            border: 1px solid #d1d5db; /* Lighter grey border */
+            border: 1px solid #d1d5db;
             border-radius: 0.375rem;
-            background-color: #f9fafb; /* Very light grey for input background */
+            background-color: #f9fafb;
         }
         button {
             padding: 0.75rem 1.5rem;
@@ -42,33 +42,52 @@
             border: none;
         }
         .btn-primary {
-            background-color: #3b82f6; /* Blue */
+            background-color: #3b82f6;
             color: white;
         }
         .btn-primary:hover {
             background-color: #2563eb;
         }
         .btn-secondary {
-            background-color: #6b7280; /* Medium grey */
+            background-color: #6b7280;
             color: white;
         }
         .btn-secondary:hover {
             background-color: #4b5563;
         }
         .btn-danger {
-            background-color: #ef4444; /* Red */
+            background-color: #ef4444;
             color: white;
         }
         .btn-danger:hover {
             background-color: #dc2626;
         }
+        /* canvas styling */
+        .canvas-container {
+            position: relative;
+            display: inline-block;
+            margin: 1rem auto;
+            width: 100%;
+            max-width: 100%;
+        }
         canvas {
             display: block;
             max-width: 100%;
             border-radius: 0.375rem;
-            margin-top: 1rem;
-            background-color: #e5e7eb; /* Placeholder background for canvas */
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        #imageCanvas {
+            background-color: #e5e7eb;
+            z-index: 1;
+            position: relative;
+        }
+        #cursorCanvas {
+            z-index: 2;
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            background: transparent !important;
         }
         .modal {
             position: fixed;
@@ -101,7 +120,7 @@
     <div class="max-w-4xl mx-auto">
         <header class="mb-8 text-center">
             <h1 class="text-3xl font-bold text-gray-800">Sketch Image Enhancer</h1>
-            <p class="text-gray-600">Upload your sketch, adjust brightness/contrast, and make the background white.</p>
+            <p class="text-gray-600">Upload, enhance, erase, and download your sketch.</p>
         </header>
 
         <div class="controls-card mb-8">
@@ -121,20 +140,32 @@
                     </div>
                 </div>
             </div>
-             <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                <button id="processBackground" class="btn-primary w-full">Make Background White</button>
-                <button id="resetControls" class="btn-secondary w-full">Reset All</button>
+            <div class="border-t pt-6 mt-6">
+                <h3 class="text-lg font-semibold mb-2 text-gray-700">Tools</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="eraserSizeSlider">Eraser Size: <span id="eraserSizeValue">10</span>px</label>
+                        <input type="range" id="eraserSizeSlider" min="1" max="100" value="10">
+                    </div>
+                    <div>
+                        <button id="processBackground" class="btn-primary w-full">Make Background White</button>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button id="resetControls" class="btn-secondary w-full">Reset All & Image</button>
                 <button id="downloadImage" class="btn-primary w-full bg-green-500 hover:bg-green-600">Download Image</button>
             </div>
             <p class="text-sm text-gray-500 mt-4">
-                Note: "Make Background White" works best on images with a clear distinction between the sketch and a light, relatively uniform background.
-                It targets light greyish pixels. Results may vary.
+                Note: Click and drag on the image to erase. "Make Background White" targets light greyish pixels.
             </p>
         </div>
 
-        <canvas id="imageCanvas"></canvas>
+        <div class="canvas-container" id="canvasContainer" style="max-width:100%;">
+            <canvas id="imageCanvas"></canvas>
+            <canvas id="cursorCanvas"></canvas>
+        </div>
         <p id="canvasPlaceholder" class="text-center text-gray-500 mt-4">Upload an image to see it here.</p>
-
     </div>
 
     <!-- Modal for messages -->
@@ -151,22 +182,28 @@
         const contrastSlider = document.getElementById('contrastSlider');
         const brightnessValueDisplay = document.getElementById('brightnessValue');
         const contrastValueDisplay = document.getElementById('contrastValue');
+        const eraserSizeSlider = document.getElementById('eraserSizeSlider');
+        const eraserSizeValueDisplay = document.getElementById('eraserSizeValue');
         const processBackgroundButton = document.getElementById('processBackground');
         const resetControlsButton = document.getElementById('resetControls');
         const downloadImageButton = document.getElementById('downloadImage');
         const canvas = document.getElementById('imageCanvas');
-        const canvasPlaceholder = document.getElementById('canvasPlaceholder');
+        const cursorCanvas = document.getElementById('cursorCanvas');
         const ctx = canvas.getContext('2d');
+        const cursorCtx = cursorCanvas.getContext('2d');
+        const canvasPlaceholder = document.getElementById('canvasPlaceholder');
 
         const messageModal = document.getElementById('messageModal');
         const modalMessageText = document.getElementById('modalMessageText');
         const closeModalButton = document.getElementById('closeModal');
 
-        let originalImage = null; // Store the original uploaded image
-        let currentImageState = null; // Store the image after background processing, if any
+        let originalImage = null;
+        let currentImageState = null;
         let imageLoaded = false;
+        let eraserSize = 10;
+        let isDrawing = false;
+        let lastMousePos = { x: 0, y: 0 };
 
-        // --- Utility to show modal messages ---
         function showModal(message) {
             modalMessageText.textContent = message;
             messageModal.classList.add('active');
@@ -175,8 +212,14 @@
             messageModal.classList.remove('active');
         });
 
+        function resizeCanvases(width, height) {
+            canvas.width = width;
+            canvas.height = height;
+            cursorCanvas.width = width;
+            cursorCanvas.height = height;
+            document.getElementById('canvasContainer').style.width = width + "px";
+        }
 
-        // --- Image Loading ---
         imageUpload.addEventListener('change', (event) => {
             const file = event.target.files[0];
             if (file) {
@@ -184,15 +227,12 @@
                 reader.onload = (e) => {
                     originalImage = new Image();
                     originalImage.onload = () => {
-                        // Set canvas dimensions to the image dimensions
-                        canvas.width = originalImage.width;
-                        canvas.height = originalImage.height;
-                        currentImageState = null; // Reset processed state
+                        resizeCanvases(originalImage.width, originalImage.height);
+                        currentImageState = null;
                         resetSliders();
                         applyFiltersAndDraw();
                         imageLoaded = true;
                         canvasPlaceholder.style.display = 'none';
-                        canvas.style.backgroundColor = 'transparent'; // Remove placeholder bg
                     };
                     originalImage.onerror = () => {
                         showModal("Error loading image. Please try a different file.");
@@ -205,25 +245,14 @@
             }
         });
 
-        // --- Filter Application and Drawing ---
         function applyFiltersAndDraw() {
             if (!originalImage) return;
-
-            // Determine which image to draw (original or background-processed)
             const imageToDraw = currentImageState || originalImage;
-
-            // Clear canvas before drawing
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Apply brightness and contrast filters
             const brightness = brightnessSlider.value / 100;
             const contrast = contrastSlider.value / 100;
             ctx.filter = `brightness(${brightness}) contrast(${contrast})`;
-            
-            // Draw the image
             ctx.drawImage(imageToDraw, 0, 0, canvas.width, canvas.height);
-            
-            // Reset filter after drawing to avoid affecting other canvas operations
             ctx.filter = 'none';
         }
 
@@ -231,118 +260,181 @@
             brightnessValueDisplay.textContent = brightnessSlider.value;
             if (imageLoaded) applyFiltersAndDraw();
         });
-
         contrastSlider.addEventListener('input', () => {
             contrastValueDisplay.textContent = contrastSlider.value;
             if (imageLoaded) applyFiltersAndDraw();
         });
 
-        // --- Background Processing ---
-        processBackgroundButton.addEventListener('click', () => {
-            if (!originalImage) {
-                showModal("Please upload an image first.");
-                return;
+        eraserSizeSlider.addEventListener('input', (e) => {
+            eraserSize = parseInt(e.target.value);
+            eraserSizeValueDisplay.textContent = eraserSize;
+            if (imageLoaded) {
+                drawEraserCursor(lastMousePos.x, lastMousePos.y);
             }
+        });
 
-            // Create a temporary canvas to process the original image
+        function getTransformedPos(canvasElement, event) {
+            const rect = canvasElement.getBoundingClientRect();
+            const scaleX = canvasElement.width / rect.width;
+            const scaleY = canvasElement.height / rect.height;
+            let clientX, clientY;
+            if (event.touches && event.touches.length > 0) {
+                clientX = event.touches[0].clientX; clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX; clientY = event.clientY;
+            }
+            return {
+                x: (clientX - rect.left) * scaleX,
+                y: (clientY - rect.top) * scaleY
+            };
+        }
+
+        function drawEraserCursor(x, y) {
+            cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+            if (!imageLoaded || Number.isNaN(x) || Number.isNaN(y)) return;
+            cursorCtx.beginPath();
+            cursorCtx.arc(x, y, eraserSize, 0, Math.PI * 2);
+            cursorCtx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+            cursorCtx.lineWidth = 1;
+            cursorCtx.stroke();
+        }
+
+        function eraseAtPoint(x, y) {
+            // Only erase on the visible image
+            if (!imageLoaded) return;
+            const baseImage = currentImageState || originalImage;
+
+            // Create an in-memory canvas to composite the erase
+            const tempEraseCanvas = document.createElement('canvas');
+            const tempEraseCtx = tempEraseCanvas.getContext('2d');
+            tempEraseCanvas.width = baseImage.width;
+            tempEraseCanvas.height = baseImage.height;
+            tempEraseCtx.drawImage(baseImage, 0, 0);
+
+            // Erase (draw transparent circle)
+            tempEraseCtx.globalCompositeOperation = 'destination-out';
+            tempEraseCtx.beginPath();
+            tempEraseCtx.arc(x, y, eraserSize, 0, 2 * Math.PI, false);
+            tempEraseCtx.fill();
+            tempEraseCtx.globalCompositeOperation = 'source-over';
+
+            const newImg = new Image();
+            newImg.onload = function () {
+                currentImageState = newImg;
+                applyFiltersAndDraw();
+            }
+            newImg.onerror = () => {
+                showModal("Error applying eraser. The image data might have become corrupted.");
+            }
+            newImg.src = tempEraseCanvas.toDataURL();
+        }
+
+        // Mouse events
+        canvas.addEventListener('mousedown', (e) => {
+            if (!imageLoaded || e.button !== 0) return;
+            isDrawing = true;
+            const pos = getTransformedPos(canvas, e);
+            eraseAtPoint(pos.x, pos.y);
+        });
+        canvas.addEventListener('mousemove', (e) => {
+            if (!imageLoaded) return;
+            const pos = getTransformedPos(canvas, e);
+            lastMousePos = pos;
+            drawEraserCursor(pos.x, pos.y);
+            if (isDrawing) eraseAtPoint(pos.x, pos.y);
+        });
+        window.addEventListener('mouseup', () => { isDrawing = false; });
+        canvas.addEventListener('mouseleave', () => {
+            isDrawing = false;
+            cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+        });
+        canvas.addEventListener('mouseenter', (e) => {
+            if (imageLoaded) {
+                const pos = getTransformedPos(canvas, e);
+                drawEraserCursor(pos.x, pos.y);
+            }
+        });
+
+        // Touch events for mobile
+        canvas.addEventListener('touchstart', (e) => {
+            if (!imageLoaded) return;
+            e.preventDefault();
+            isDrawing = true;
+            const pos = getTransformedPos(canvas, e);
+            eraseAtPoint(pos.x, pos.y); 
+            drawEraserCursor(pos.x, pos.y);
+        }, { passive: false });
+        canvas.addEventListener('touchmove', (e) => {
+            if (!imageLoaded || !isDrawing) return;
+            e.preventDefault();
+            const pos = getTransformedPos(canvas, e);
+            eraseAtPoint(pos.x, pos.y);
+            drawEraserCursor(pos.x, pos.y);
+        }, { passive: false });
+        canvas.addEventListener('touchend', () => { isDrawing = false; });
+        canvas.addEventListener('touchcancel', () => { isDrawing = false; });
+
+        processBackgroundButton.addEventListener('click', () => {
+            const baseImageForProcessing = currentImageState || originalImage;
+            if (!baseImageForProcessing || !imageLoaded) {
+                showModal("Please upload an image first."); return;
+            }
             const tempCanvas = document.createElement('canvas');
             const tempCtx = tempCanvas.getContext('2d');
-            tempCanvas.width = originalImage.width;
-            tempCanvas.height = originalImage.height;
-
-            // Draw the original image to the temporary canvas
-            tempCtx.drawImage(originalImage, 0, 0);
-
-            // Get image data from the temporary canvas
+            tempCanvas.width = baseImageForProcessing.width; tempCanvas.height = baseImageForProcessing.height;
+            tempCtx.drawImage(baseImageForProcessing, 0, 0);
             const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
             const data = imageData.data;
-
-            // Define thresholds for "background-like" pixels
-            // These values might need tweaking for different images/lighting
-            const R_THRESHOLD = 200; 
-            const G_THRESHOLD = 200;
-            const B_THRESHOLD = 200;
-            const COLOR_DIFF_THRESHOLD = 35; // Max difference between R,G,B to be considered greyish
-
+            const R_THRESHOLD = 200, G_THRESHOLD = 200, B_THRESHOLD = 200, COLOR_DIFF_THRESHOLD = 35;
             for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-
-                // Check if pixel is light enough
-                if (r > R_THRESHOLD && g > G_THRESHOLD && b > B_THRESHOLD) {
-                    // Check if pixel is greyish (components are close to each other)
-                    const maxColor = Math.max(r, g, b);
-                    const minColor = Math.min(r, g, b);
-                    if ((maxColor - minColor) < COLOR_DIFF_THRESHOLD) {
-                        // Make this pixel white
-                        data[i] = 255;     // Red
-                        data[i + 1] = 255; // Green
-                        data[i + 2] = 255; // Blue
-                        // Alpha (data[i+3]) remains unchanged
+                if (data[i+3] > 0) { // Only non-transparent
+                    const r = data[i], g = data[i + 1], b = data[i + 2];
+                    if (r > R_THRESHOLD && g > G_THRESHOLD && b > B_THRESHOLD) {
+                        const maxColor = Math.max(r, g, b), minColor = Math.min(r, g, b);
+                        if ((maxColor - minColor) < COLOR_DIFF_THRESHOLD) {
+                            data[i] = 255; data[i + 1] = 255; data[i + 2] = 255;
+                        }
                     }
                 }
             }
-
-            // Put the modified data back to the temporary canvas
             tempCtx.putImageData(imageData, 0, 0);
-
-            // Create a new Image object from the processed temporary canvas
-            currentImageState = new Image();
-            currentImageState.onload = () => {
-                applyFiltersAndDraw(); // Redraw with the new base image and current filters
-                showModal("Background processed. You can continue adjusting brightness/contrast or download.");
+            const newProcessedImage = new Image();
+            newProcessedImage.onload = () => {
+                currentImageState = newProcessedImage; applyFiltersAndDraw();
+                showModal("Background processed.");
             };
-            currentImageState.onerror = () => {
-                 showModal("Error processing background. The image might be too complex or in an unsupported format after processing.");
-            }
-            currentImageState.src = tempCanvas.toDataURL();
+            newProcessedImage.onerror = () => showModal("Error processing background.");
+            newProcessedImage.src = tempCanvas.toDataURL();
         });
 
-        // --- Reset Controls ---
         function resetSliders() {
-            brightnessSlider.value = 100;
-            contrastSlider.value = 100;
+            brightnessSlider.value = 100; contrastSlider.value = 100;
             brightnessValueDisplay.textContent = '100';
             contrastValueDisplay.textContent = '100';
+            eraserSizeSlider.value = 10; eraserSizeValueDisplay.textContent = '10';
+            eraserSize = 10;
         }
 
         resetControlsButton.addEventListener('click', () => {
-            if (!originalImage) {
-                showModal("Upload an image to reset controls.");
-                return;
-            }
-            currentImageState = null; // Revert to original image if background was processed
+            if (!originalImage) { showModal("Upload an image to reset."); return; }
+            currentImageState = null;
+            imageLoaded = true;
             resetSliders();
             applyFiltersAndDraw();
+            cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
             showModal("Controls and image reset to original.");
         });
 
-        // --- Download Image ---
         downloadImageButton.addEventListener('click', () => {
-            if (!imageLoaded || !originalImage) {
-                showModal("Please upload and process an image before downloading.");
-                return;
-            }
-
-            // Create a temporary canvas to draw the final image for download
-            // This ensures filters are correctly applied before generating the data URL
+            if (!imageLoaded || !originalImage) { showModal("Please upload and process an image before downloading."); return; }
+            const imageToDownload = currentImageState || originalImage;
             const downloadCanvas = document.createElement('canvas');
             const downloadCtx = downloadCanvas.getContext('2d');
-            
-            const imageToDownload = currentImageState || originalImage;
             downloadCanvas.width = imageToDownload.width;
             downloadCanvas.height = imageToDownload.height;
-
-            // Apply current filters
-            const brightness = brightnessSlider.value / 100;
-            const contrast = contrastSlider.value / 100;
-            downloadCtx.filter = `brightness(${brightness}) contrast(${contrast})`;
-            
-            // Draw the image (either original or background-processed)
+            downloadCtx.filter = `brightness(${brightnessSlider.value / 100}) contrast(${contrastSlider.value / 100})`;
             downloadCtx.drawImage(imageToDownload, 0, 0, downloadCanvas.width, downloadCanvas.height);
-            
-            // Create download link
+            downloadCtx.filter = 'none';
             const dataURL = downloadCanvas.toDataURL('image/png');
             const link = document.createElement('a');
             link.href = dataURL;
@@ -353,11 +445,9 @@
             showModal("Image download started.");
         });
 
-        // Initial placeholder visibility
         if (!imageLoaded) {
             canvasPlaceholder.style.display = 'block';
         }
-
     </script>
 </body>
 </html>
