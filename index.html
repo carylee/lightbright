@@ -177,277 +177,274 @@
     </div>
 
     <script>
-        const imageUpload = document.getElementById('imageUpload');
-        const brightnessSlider = document.getElementById('brightnessSlider');
-        const contrastSlider = document.getElementById('contrastSlider');
-        const brightnessValueDisplay = document.getElementById('brightnessValue');
-        const contrastValueDisplay = document.getElementById('contrastValue');
-        const eraserSizeSlider = document.getElementById('eraserSizeSlider');
-        const eraserSizeValueDisplay = document.getElementById('eraserSizeValue');
-        const processBackgroundButton = document.getElementById('processBackground');
-        const resetControlsButton = document.getElementById('resetControls');
-        const downloadImageButton = document.getElementById('downloadImage');
-        const canvas = document.getElementById('imageCanvas');
-        const cursorCanvas = document.getElementById('cursorCanvas');
-        const ctx = canvas.getContext('2d');
-        const cursorCtx = cursorCanvas.getContext('2d');
-        const canvasPlaceholder = document.getElementById('canvasPlaceholder');
+const imageUpload = document.getElementById('imageUpload');
+const brightnessSlider = document.getElementById('brightnessSlider');
+const contrastSlider = document.getElementById('contrastSlider');
+const brightnessValueDisplay = document.getElementById('brightnessValue');
+const contrastValueDisplay = document.getElementById('contrastValue');
+const eraserSizeSlider = document.getElementById('eraserSizeSlider');
+const eraserSizeValueDisplay = document.getElementById('eraserSizeValue');
+const processBackgroundButton = document.getElementById('processBackground');
+const resetControlsButton = document.getElementById('resetControls');
+const downloadImageButton = document.getElementById('downloadImage');
+const canvas = document.getElementById('imageCanvas');
+const cursorCanvas = document.getElementById('cursorCanvas');
+const ctx = canvas.getContext('2d');
+const cursorCtx = cursorCanvas.getContext('2d');
+const canvasPlaceholder = document.getElementById('canvasPlaceholder');
 
-        const messageModal = document.getElementById('messageModal');
-        const modalMessageText = document.getElementById('modalMessageText');
-        const closeModalButton = document.getElementById('closeModal');
+const messageModal = document.getElementById('messageModal');
+const modalMessageText = document.getElementById('modalMessageText');
+const closeModalButton = document.getElementById('closeModal');
 
-        let originalImage = null;
-        let currentImageState = null;
-        let imageLoaded = false;
-        let eraserSize = 10;
-        let isDrawing = false;
-        let lastMousePos = { x: 0, y: 0 };
+// --- Work with an offscreen buffer for the actual data ---
+let drawingCanvas = document.createElement('canvas');
+let drawingCtx = drawingCanvas.getContext('2d');
 
-        function showModal(message) {
-            modalMessageText.textContent = message;
-            messageModal.classList.add('active');
-        }
-        closeModalButton.addEventListener('click', () => {
-            messageModal.classList.remove('active');
-        });
+let originalImage = null;
+let imageLoaded = false;
+let eraserSize = 10;
+let isDrawing = false;
+let lastMousePos = { x: 0, y: 0 };
 
-        function resizeCanvases(width, height) {
-            canvas.width = width;
-            canvas.height = height;
-            cursorCanvas.width = width;
-            cursorCanvas.height = height;
-            document.getElementById('canvasContainer').style.width = width + "px";
-        }
+function showModal(message) {
+    modalMessageText.textContent = message;
+    messageModal.classList.add('active');
+}
+closeModalButton.addEventListener('click', () => {
+    messageModal.classList.remove('active');
+});
 
-        imageUpload.addEventListener('change', (event) => {
-            const file = event.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    originalImage = new Image();
-                    originalImage.onload = () => {
-                        resizeCanvases(originalImage.width, originalImage.height);
-                        currentImageState = null;
-                        resetSliders();
-                        applyFiltersAndDraw();
-                        imageLoaded = true;
-                        canvasPlaceholder.style.display = 'none';
-                    };
-                    originalImage.onerror = () => {
-                        showModal("Error loading image. Please try a different file.");
-                        imageLoaded = false;
-                        canvasPlaceholder.style.display = 'block';
-                    }
-                    originalImage.src = e.target.result;
-                };
-                reader.readAsDataURL(file);
-            }
-        });
+function resizeCanvases(width, height) {
+    canvas.width = width; canvas.height = height;
+    cursorCanvas.width = width; cursorCanvas.height = height;
+    drawingCanvas.width = width; drawingCanvas.height = height;
+    document.getElementById('canvasContainer').style.width = width + "px";
+}
 
-        function applyFiltersAndDraw() {
-            if (!originalImage) return;
-            const imageToDraw = currentImageState || originalImage;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            const brightness = brightnessSlider.value / 100;
-            const contrast = contrastSlider.value / 100;
-            ctx.filter = `brightness(${brightness}) contrast(${contrast})`;
-            ctx.drawImage(imageToDraw, 0, 0, canvas.width, canvas.height);
-            ctx.filter = 'none';
-        }
-
-        brightnessSlider.addEventListener('input', () => {
-            brightnessValueDisplay.textContent = brightnessSlider.value;
-            if (imageLoaded) applyFiltersAndDraw();
-        });
-        contrastSlider.addEventListener('input', () => {
-            contrastValueDisplay.textContent = contrastSlider.value;
-            if (imageLoaded) applyFiltersAndDraw();
-        });
-
-        eraserSizeSlider.addEventListener('input', (e) => {
-            eraserSize = parseInt(e.target.value);
-            eraserSizeValueDisplay.textContent = eraserSize;
-            if (imageLoaded) {
-                drawEraserCursor(lastMousePos.x, lastMousePos.y);
-            }
-        });
-
-        function getTransformedPos(canvasElement, event) {
-            const rect = canvasElement.getBoundingClientRect();
-            const scaleX = canvasElement.width / rect.width;
-            const scaleY = canvasElement.height / rect.height;
-            let clientX, clientY;
-            if (event.touches && event.touches.length > 0) {
-                clientX = event.touches[0].clientX; clientY = event.touches[0].clientY;
-            } else {
-                clientX = event.clientX; clientY = event.clientY;
-            }
-            return {
-                x: (clientX - rect.left) * scaleX,
-                y: (clientY - rect.top) * scaleY
-            };
-        }
-
-        function drawEraserCursor(x, y) {
-            cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-            if (!imageLoaded || Number.isNaN(x) || Number.isNaN(y)) return;
-            cursorCtx.beginPath();
-            cursorCtx.arc(x, y, eraserSize, 0, Math.PI * 2);
-            cursorCtx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-            cursorCtx.lineWidth = 1;
-            cursorCtx.stroke();
-        }
-
-        function eraseAtPoint(x, y) {
-            // Only erase on the visible image
-            if (!imageLoaded) return;
-            const baseImage = currentImageState || originalImage;
-
-            // Create an in-memory canvas to composite the erase
-            const tempEraseCanvas = document.createElement('canvas');
-            const tempEraseCtx = tempEraseCanvas.getContext('2d');
-            tempEraseCanvas.width = baseImage.width;
-            tempEraseCanvas.height = baseImage.height;
-            tempEraseCtx.drawImage(baseImage, 0, 0);
-
-            // Erase (draw transparent circle)
-            tempEraseCtx.globalCompositeOperation = 'destination-out';
-            tempEraseCtx.beginPath();
-            tempEraseCtx.arc(x, y, eraserSize, 0, 2 * Math.PI, false);
-            tempEraseCtx.fill();
-            tempEraseCtx.globalCompositeOperation = 'source-over';
-
-            const newImg = new Image();
-            newImg.onload = function () {
-                currentImageState = newImg;
+imageUpload.addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            originalImage = new Image();
+            originalImage.onload = () => {
+                resizeCanvases(originalImage.width, originalImage.height);
+                // Fill white before drawing the image (handles erased regions nicely)
+                drawingCtx.fillStyle = "#fff";
+                drawingCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                drawingCtx.drawImage(originalImage, 0, 0);
+                resetSliders();
                 applyFiltersAndDraw();
+                imageLoaded = true;
+                canvasPlaceholder.style.display = 'none';
+            };
+            originalImage.onerror = () => {
+                showModal("Error loading image. Please try a different file.");
+                imageLoaded = false;
+                canvasPlaceholder.style.display = 'block';
             }
-            newImg.onerror = () => {
-                showModal("Error applying eraser. The image data might have become corrupted.");
-            }
-            newImg.src = tempEraseCanvas.toDataURL();
-        }
+            originalImage.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+});
 
-        // Mouse events
-        canvas.addEventListener('mousedown', (e) => {
-            if (!imageLoaded || e.button !== 0) return;
-            isDrawing = true;
-            const pos = getTransformedPos(canvas, e);
-            eraseAtPoint(pos.x, pos.y);
-        });
-        canvas.addEventListener('mousemove', (e) => {
-            if (!imageLoaded) return;
-            const pos = getTransformedPos(canvas, e);
-            lastMousePos = pos;
-            drawEraserCursor(pos.x, pos.y);
-            if (isDrawing) eraseAtPoint(pos.x, pos.y);
-        });
-        window.addEventListener('mouseup', () => { isDrawing = false; });
-        canvas.addEventListener('mouseleave', () => {
-            isDrawing = false;
-            cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-        });
-        canvas.addEventListener('mouseenter', (e) => {
-            if (imageLoaded) {
-                const pos = getTransformedPos(canvas, e);
-                drawEraserCursor(pos.x, pos.y);
-            }
-        });
+function applyFiltersAndDraw() {
+    if (!imageLoaded) return;
+    if (drawingCanvas.width === 0 || drawingCanvas.height === 0) {
+        // nothing to show
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const brightness = brightnessSlider.value / 100;
+    const contrast = contrastSlider.value / 100;
+    ctx.filter = `brightness(${brightness}) contrast(${contrast})`;
+    ctx.drawImage(drawingCanvas, 0, 0, canvas.width, canvas.height);
+    ctx.filter = 'none';
+}
 
-        // Touch events for mobile
-        canvas.addEventListener('touchstart', (e) => {
-            if (!imageLoaded) return;
-            e.preventDefault();
-            isDrawing = true;
-            const pos = getTransformedPos(canvas, e);
-            eraseAtPoint(pos.x, pos.y); 
-            drawEraserCursor(pos.x, pos.y);
-        }, { passive: false });
-        canvas.addEventListener('touchmove', (e) => {
-            if (!imageLoaded || !isDrawing) return;
-            e.preventDefault();
-            const pos = getTransformedPos(canvas, e);
-            eraseAtPoint(pos.x, pos.y);
-            drawEraserCursor(pos.x, pos.y);
-        }, { passive: false });
-        canvas.addEventListener('touchend', () => { isDrawing = false; });
-        canvas.addEventListener('touchcancel', () => { isDrawing = false; });
+brightnessSlider.addEventListener('input', () => {
+    brightnessValueDisplay.textContent = brightnessSlider.value;
+    if (imageLoaded) applyFiltersAndDraw();
+});
+contrastSlider.addEventListener('input', () => {
+    contrastValueDisplay.textContent = contrastSlider.value;
+    if (imageLoaded) applyFiltersAndDraw();
+});
 
-        processBackgroundButton.addEventListener('click', () => {
-            const baseImageForProcessing = currentImageState || originalImage;
-            if (!baseImageForProcessing || !imageLoaded) {
-                showModal("Please upload an image first."); return;
-            }
-            const tempCanvas = document.createElement('canvas');
-            const tempCtx = tempCanvas.getContext('2d');
-            tempCanvas.width = baseImageForProcessing.width; tempCanvas.height = baseImageForProcessing.height;
-            tempCtx.drawImage(baseImageForProcessing, 0, 0);
-            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-            const data = imageData.data;
-            const R_THRESHOLD = 200, G_THRESHOLD = 200, B_THRESHOLD = 200, COLOR_DIFF_THRESHOLD = 35;
-            for (let i = 0; i < data.length; i += 4) {
-                if (data[i+3] > 0) { // Only non-transparent
-                    const r = data[i], g = data[i + 1], b = data[i + 2];
-                    if (r > R_THRESHOLD && g > G_THRESHOLD && b > B_THRESHOLD) {
-                        const maxColor = Math.max(r, g, b), minColor = Math.min(r, g, b);
-                        if ((maxColor - minColor) < COLOR_DIFF_THRESHOLD) {
-                            data[i] = 255; data[i + 1] = 255; data[i + 2] = 255;
-                        }
-                    }
+eraserSizeSlider.addEventListener('input', (e) => {
+    eraserSize = parseInt(e.target.value);
+    eraserSizeValueDisplay.textContent = eraserSize;
+    if (imageLoaded) {
+        drawEraserCursor(lastMousePos.x, lastMousePos.y);
+    }
+});
+
+function getTransformedPos(canvasElement, event) {
+    const rect = canvasElement.getBoundingClientRect();
+    const scaleX = canvasElement.width / rect.width;
+    const scaleY = canvasElement.height / rect.height;
+    let clientX, clientY;
+    if (event.touches && event.touches.length > 0) {
+        clientX = event.touches[0].clientX; clientY = event.touches[0].clientY;
+    } else {
+        clientX = event.clientX; clientY = event.clientY;
+    }
+    return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY
+    };
+}
+
+function drawEraserCursor(x, y) {
+    cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+    if (!imageLoaded || Number.isNaN(x) || Number.isNaN(y)) return;
+    cursorCtx.beginPath();
+    cursorCtx.arc(x, y, eraserSize, 0, Math.PI * 2);
+    cursorCtx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    cursorCtx.lineWidth = 1;
+    cursorCtx.stroke();
+}
+
+function eraseAtPoint(x, y) {
+    if (!imageLoaded) return;
+    drawingCtx.save();
+    drawingCtx.globalCompositeOperation = 'destination-out';
+    drawingCtx.beginPath();
+    drawingCtx.arc(x, y, eraserSize, 0, 2 * Math.PI, false);
+    drawingCtx.fill();
+    drawingCtx.restore();
+    applyFiltersAndDraw();
+}
+
+// Mouse events
+canvas.addEventListener('mousedown', (e) => {
+    if (!imageLoaded || e.button !== 0) return;
+    isDrawing = true;
+    const pos = getTransformedPos(canvas, e);
+    eraseAtPoint(pos.x, pos.y);
+});
+canvas.addEventListener('mousemove', (e) => {
+    if (!imageLoaded) return;
+    const pos = getTransformedPos(canvas, e);
+    lastMousePos = pos;
+    drawEraserCursor(pos.x, pos.y);
+    if (isDrawing) eraseAtPoint(pos.x, pos.y);
+});
+window.addEventListener('mouseup', () => { isDrawing = false; });
+canvas.addEventListener('mouseleave', () => {
+    isDrawing = false;
+    cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+});
+canvas.addEventListener('mouseenter', (e) => {
+    if (imageLoaded) {
+        const pos = getTransformedPos(canvas, e);
+        drawEraserCursor(pos.x, pos.y);
+    }
+});
+
+// Touch events for mobile
+canvas.addEventListener('touchstart', (e) => {
+    if (!imageLoaded) return;
+    e.preventDefault();
+    isDrawing = true;
+    const pos = getTransformedPos(canvas, e);
+    eraseAtPoint(pos.x, pos.y); 
+    drawEraserCursor(pos.x, pos.y);
+}, { passive: false });
+canvas.addEventListener('touchmove', (e) => {
+    if (!imageLoaded || !isDrawing) return;
+    e.preventDefault();
+    const pos = getTransformedPos(canvas, e);
+    eraseAtPoint(pos.x, pos.y);
+    drawEraserCursor(pos.x, pos.y);
+}, { passive: false });
+canvas.addEventListener('touchend', () => { isDrawing = false; });
+canvas.addEventListener('touchcancel', () => { isDrawing = false; });
+
+processBackgroundButton.addEventListener('click', () => {
+    if (!imageLoaded) {
+        showModal("Please upload an image first."); return;
+    }
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCanvas.width = drawingCanvas.width; tempCanvas.height = drawingCanvas.height;
+    tempCtx.drawImage(drawingCanvas, 0, 0);
+    const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+    const data = imageData.data;
+    const R_THRESHOLD = 200, G_THRESHOLD = 200, B_THRESHOLD = 200, COLOR_DIFF_THRESHOLD = 35;
+    for (let i = 0; i < data.length; i += 4) {
+        if (data[i+3] > 0) {
+            const r = data[i], g = data[i+1], b = data[i+2];
+            if(r > R_THRESHOLD && g > G_THRESHOLD && b > B_THRESHOLD) {
+                const maxC = Math.max(r, g, b), minC = Math.min(r, g, b);
+                if ((maxC - minC) < COLOR_DIFF_THRESHOLD) {
+                    data[i] = 255; data[i+1] = 255; data[i+2] = 255;
                 }
             }
-            tempCtx.putImageData(imageData, 0, 0);
-            const newProcessedImage = new Image();
-            newProcessedImage.onload = () => {
-                currentImageState = newProcessedImage; applyFiltersAndDraw();
-                showModal("Background processed.");
-            };
-            newProcessedImage.onerror = () => showModal("Error processing background.");
-            newProcessedImage.src = tempCanvas.toDataURL();
-        });
-
-        function resetSliders() {
-            brightnessSlider.value = 100; contrastSlider.value = 100;
-            brightnessValueDisplay.textContent = '100';
-            contrastValueDisplay.textContent = '100';
-            eraserSizeSlider.value = 10; eraserSizeValueDisplay.textContent = '10';
-            eraserSize = 10;
         }
+    }
+    tempCtx.putImageData(imageData, 0, 0);
+    // set result back to drawingCanvas
+    drawingCtx.save();
+    drawingCtx.globalCompositeOperation = 'source-over';
+    drawingCtx.drawImage(tempCanvas, 0, 0);
+    drawingCtx.restore();
+    applyFiltersAndDraw();
+    showModal("Background processed.");
+});
 
-        resetControlsButton.addEventListener('click', () => {
-            if (!originalImage) { showModal("Upload an image to reset."); return; }
-            currentImageState = null;
-            imageLoaded = true;
-            resetSliders();
-            applyFiltersAndDraw();
-            cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-            showModal("Controls and image reset to original.");
-        });
+function resetSliders() {
+    brightnessSlider.value = 100; contrastSlider.value = 100;
+    brightnessValueDisplay.textContent = '100';
+    contrastValueDisplay.textContent = '100';
+    eraserSizeSlider.value = 10; eraserSizeValueDisplay.textContent = '10';
+    eraserSize = 10;
+}
 
-        downloadImageButton.addEventListener('click', () => {
-            if (!imageLoaded || !originalImage) { showModal("Please upload and process an image before downloading."); return; }
-            const imageToDownload = currentImageState || originalImage;
-            const downloadCanvas = document.createElement('canvas');
-            const downloadCtx = downloadCanvas.getContext('2d');
-            downloadCanvas.width = imageToDownload.width;
-            downloadCanvas.height = imageToDownload.height;
-            downloadCtx.filter = `brightness(${brightnessSlider.value / 100}) contrast(${contrastSlider.value / 100})`;
-            downloadCtx.drawImage(imageToDownload, 0, 0, downloadCanvas.width, downloadCanvas.height);
-            downloadCtx.filter = 'none';
-            const dataURL = downloadCanvas.toDataURL('image/png');
-            const link = document.createElement('a');
-            link.href = dataURL;
-            link.download = 'edited_sketch.png';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            showModal("Image download started.");
-        });
+resetControlsButton.addEventListener('click', () => {
+    if (!originalImage) { showModal("Upload an image to reset."); return; }
+    // Reset drawingCanvas to original
+    drawingCtx.fillStyle = "#fff";
+    drawingCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    drawingCtx.drawImage(originalImage, 0, 0);
+    imageLoaded = true;
+    resetSliders();
+    applyFiltersAndDraw();
+    cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+    showModal("Controls and image reset to original.");
+});
 
-        if (!imageLoaded) {
-            canvasPlaceholder.style.display = 'block';
-        }
-    </script>
+// --- Download always has white background, never transparency ---
+downloadImageButton.addEventListener('click', () => {
+    if (!imageLoaded) { showModal("Please upload and process an image before downloading."); return; }
+    // Compose: white bg, then current drawing, with active filters
+    const downloadCanvas = document.createElement('canvas');
+    downloadCanvas.width = drawingCanvas.width;
+    downloadCanvas.height = drawingCanvas.height;
+    const downloadCtx = downloadCanvas.getContext('2d');
+    downloadCtx.fillStyle = "#fff";
+    downloadCtx.fillRect(0, 0, downloadCanvas.width, downloadCanvas.height);
+    const brightness = brightnessSlider.value / 100;
+    const contrast = contrastSlider.value / 100;
+    downloadCtx.filter = `brightness(${brightness}) contrast(${contrast})`;
+    downloadCtx.drawImage(drawingCanvas, 0, 0);
+    downloadCtx.filter = 'none';
+    const dataURL = downloadCanvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.href = dataURL;
+    link.download = 'edited_sketch.png';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showModal("Image download started.");
+});
+
+if (!imageLoaded) {
+    canvasPlaceholder.style.display = 'block';
+}
+</script>
 </body>
 </html>
