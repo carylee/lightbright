@@ -145,7 +145,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label for="eraserSizeSlider">Eraser Size: <span id="eraserSizeValue">10</span>px</label>
-                        <input type="range" id="eraserSizeSlider" min="1" max="100" value="10">
+                        <input type="range" id="eraserSizeSlider" min="1" max="100" value="50">
                     </div>
                     <div>
                         <button id="processBackground" class="btn-primary w-full">Make Background White</button>
@@ -252,16 +252,20 @@ imageUpload.addEventListener('change', (event) => {
 function applyFiltersAndDraw() {
     if (!imageLoaded) return;
     if (drawingCanvas.width === 0 || drawingCanvas.height === 0) {
-        // nothing to show
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         return;
     }
+    // Fill the display with white before drawing content, for white preview of erased regions.
+    ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     const brightness = brightnessSlider.value / 100;
     const contrast = contrastSlider.value / 100;
     ctx.filter = `brightness(${brightness}) contrast(${contrast})`;
     ctx.drawImage(drawingCanvas, 0, 0, canvas.width, canvas.height);
     ctx.filter = 'none';
+    ctx.restore();
 }
 
 brightnessSlider.addEventListener('input', () => {
@@ -399,8 +403,8 @@ function resetSliders() {
     brightnessSlider.value = 100; contrastSlider.value = 100;
     brightnessValueDisplay.textContent = '100';
     contrastValueDisplay.textContent = '100';
-    eraserSizeSlider.value = 10; eraserSizeValueDisplay.textContent = '10';
-    eraserSize = 10;
+    eraserSizeSlider.value = 50; eraserSizeValueDisplay.textContent = '50';
+    eraserSize = 50;
 }
 
 resetControlsButton.addEventListener('click', () => {
