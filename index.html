@@ -229,16 +229,15 @@ imageUpload.addEventListener('change', (event) => {
         reader.onload = (e) => {
             originalImage = new Image();
             originalImage.onload = () => {
-                resizeCanvases(originalImage.width, originalImage.height);
-                // Fill white before drawing the image (handles erased regions nicely)
-                drawingCtx.fillStyle = "#fff";
-                drawingCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-                drawingCtx.drawImage(originalImage, 0, 0);
-                resetSliders();
-                applyFiltersAndDraw();
-                imageLoaded = true;
-                canvasPlaceholder.style.display = 'none';
-            };
+    resizeCanvases(originalImage.width, originalImage.height);
+    resetSliders(); // Reset filters and eraser before drawing image
+    drawingCtx.fillStyle = "#fff";
+    drawingCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    drawingCtx.drawImage(originalImage, 0, 0);
+    imageLoaded = true;
+    canvasPlaceholder.style.display = 'none';
+    applyFiltersAndDraw(); // Guarantee image is rendered for user
+};
             originalImage.onerror = () => {
                 showModal("Error loading image. Please try a different file.");
                 imageLoaded = false;
